@@ -38,28 +38,22 @@ impl CompressionFilter {
         matches!(self, Self::ZlibFilter)
     }
 
-    /// Where the instruction scan stops within `data`. The file's last
-    /// instruction-sized window is left alone; a block's is not, having the
-    /// rest of the file behind it.
-    fn scan_limit(data: &[u8], is_last: bool) -> usize {
-        data.len() + usize::from(!is_last)
-    }
-
     /// Converts relative addresses in x86/x64 CALL and JMP instructions to absolute addresses for older Inno Setup versions.
     ///
     /// This modifies `data` in-place.
     fn decode_4108(data: &mut [u8]) {
-        Self::decode_4108_at(data, 0, true);
+        Self::decode_4108_at(data, 0);
     }
 
     /// As [`decode_4108`](Self::decode_4108), but `start` is the offset of
-    /// `data[0]` within the whole file and `is_last` says whether the file ends
-    /// with `data`. Returns where the scan stopped.
-    fn decode_4108_at(data: &mut [u8], start: u64, is_last: bool) -> usize {
-        let limit = Self::scan_limit(data, is_last);
-
+    /// `data[0]` within the whole file. Returns where the scan stopped.
+    ///
+    /// An instruction that ends at the end of `data` is decoded, as innoextract
+    /// does:
+    /// <https://github.com/dscharrer/innoextract/blob/6e9e34ed0876014fdb46e684103ef8c3605e382e/src/stream/exefilter.hpp#L145-L171>
+    fn decode_4108_at(data: &mut [u8], start: u64) -> usize {
         let mut position = 0;
-        while position + size_of::<Instruction>() < limit {
+        while position + size_of::<Instruction>() <= data.len() {
             let Ok(instruction) = Instruction::try_mut_from_bytes(
                 &mut data[position..position + size_of::<Instruction>()],
             ) else {
@@ -89,24 +83,21 @@ impl CompressionFilter {
     fn transform_call_instructions<const ENCODE: bool, const FLIP_HIGH_BYTE: bool>(
         data: &mut [u8],
     ) {
-        Self::transform_call_instructions_at::<ENCODE, FLIP_HIGH_BYTE>(data, 0, true);
+        Self::transform_call_instructions_at::<ENCODE, FLIP_HIGH_BYTE>(data, 0);
     }
 
     /// As [`transform_call_instructions`](Self::transform_call_instructions),
-    /// but `start` is the offset of `data[0]` within the whole file and
-    /// `is_last` says whether the file ends with `data`. Returns where the scan
-    /// stopped.
+    /// but `start` is the offset of `data[0]` within the whole file. Returns
+    /// where the scan stopped. An instruction that ends at the end of `data`
+    /// is transformed, as in Inno Setup.
     fn transform_call_instructions_at<const ENCODE: bool, const FLIP_HIGH_BYTE: bool>(
         data: &mut [u8],
         start: u64,
-        is_last: bool,
     ) -> usize {
         // https://github.com/jrsoftware/issrc/blob/is-6_7_3/Projects/Src/Compression.Base.pas#L172
 
-        let limit = Self::scan_limit(data, is_last);
-
         let mut position = 0;
-        while position + size_of::<Instruction>() < limit {
+        while position + size_of::<Instruction>() <= data.len() {
             // Does it appear to be a CALL or JMP instruction with a relative 32-bit address?
             let Ok(instruction) = Instruction::try_mut_from_bytes(
                 &mut data[position..position + size_of::<Instruction>()],
@@ -211,12 +202,12 @@ impl CompressionFilter {
     /// [`ZlibFilter`]: Self::ZlibFilter
     pub(crate) fn decode_block(self, block: &mut [u8], position: u64, is_last: bool) -> usize {
         let scanned = match self {
-            Self::InstructionFilter4108 => Self::decode_4108_at(block, position, is_last),
+            Self::InstructionFilter4108 => Self::decode_4108_at(block, position),
             Self::InstructionFilter5200 => {
-                Self::transform_call_instructions_at::<false, false>(block, position, is_last)
+                Self::transform_call_instructions_at::<false, false>(block, position)
             }
             Self::InstructionFilter5309 => {
-                Self::transform_call_instructions_at::<false, true>(block, position, is_last)
+                Self::transform_call_instructions_at::<false, true>(block, position)
             }
             Self::NoFilter | Self::ZlibFilter => block.len(),
         };
@@ -330,8 +321,7 @@ mod block_tests {
         }
     }
 
-    /// A non-final block's last window has the rest of the file behind it, so
-    /// unlike the whole-buffer form it must still be decoded.
+    /// An instruction in the last window of a block is decoded.
     #[test]
     fn an_instruction_at_the_end_of_a_block_is_decoded() {
         // Zeroes are not a valid opcode, so the scan steps a byte at a time and
