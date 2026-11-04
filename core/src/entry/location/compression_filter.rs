@@ -386,6 +386,28 @@ mod block_tests {
         }
     }
 
+    /// Inno Setup decodes an instruction that ends at the last byte of a file.
+    /// https://github.com/jrsoftware/issrc/blob/is-6_7_3/Projects/Src/Compression.Base.pas#L184-L186
+    #[test]
+    fn an_instruction_in_the_last_bytes_of_a_file_is_decoded() {
+        // `call +0x10` at offset 11, encoded relative to the start of the
+        // buffer: 0x10 + 16 = 0x20.
+        let mut data = vec![0x90u8; 16];
+        data[11..].copy_from_slice(&[0xE8, 0x20, 0x00, 0x00, 0x00]);
+
+        for filter in [
+            CompressionFilter::InstructionFilter4108,
+            CompressionFilter::InstructionFilter5200,
+            CompressionFilter::InstructionFilter5309,
+        ] {
+            let mut whole = data.clone();
+            let decoded = filter.decode(&mut whole).expect("whole").into_owned();
+            assert_eq!(decoded[11..], [0xE8, 0x10, 0, 0, 0], "{filter:?}");
+
+            assert_eq!(decode_in_blocks(filter, &data), decoded, "{filter:?}");
+        }
+    }
+
     #[test]
     fn no_filter_leaves_a_block_alone() {
         let mut block = [1u8, 2, 3, 4, 5];
