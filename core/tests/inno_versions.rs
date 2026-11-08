@@ -99,7 +99,9 @@ fn inno_versions(
         "7.0.2-x86",
         "7.0.2-x64",
         "7.1.0-x86",
-        "7.1.0-x64"
+        "7.1.0-x64",
+        "7.1.1-x86",
+        "7.1.1-x64"
     )]
     version: &str,
 ) -> Result<(), Box<dyn Error>> {
@@ -176,6 +178,22 @@ fn inno_6_7_1() -> Result<(), Box<dyn Error>> {
     // 6.7.0 parses without these, but 6.7.1 fails
     assert!(inno.wizard().back_images().is_empty());
     assert!(inno.wizard().back_images_dynamic_dark().is_empty());
+
+    Ok(())
+}
+
+#[test]
+#[ignore]
+fn inno_7_1_1() -> Result<(), Box<dyn Error>> {
+    let inno_bytes = download_inno_version("7.1.1-x64")?;
+
+    let inno = Inno::new(Cursor::new(inno_bytes))?;
+
+    assert_eq!(inno.version(), InnoVersion::new(7, 1, 1, 0));
+    assert_eq!(inno.header().app_version(), Some("7.1.1"));
+
+    // 7.1.1 removes the base filename, the string before this one.
+    assert_eq!(inno.header().uninstall_files_dir(), Some("{app}"));
 
     Ok(())
 }
